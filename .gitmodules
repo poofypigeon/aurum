@@ -1,0 +1,3 @@
+[submodule "auras"]
+	path = auras
+	url = git@github.com:poofypigeon/auras.git

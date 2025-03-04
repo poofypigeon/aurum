@@ -1,0 +1,5 @@
+package aurum
+
+main :: proc() {
+    
+}
