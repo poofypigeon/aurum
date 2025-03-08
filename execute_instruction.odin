@@ -1,112 +1,116 @@
 package aurum
 
+import "core:fmt"
 import "auras"
 
-execute_instruction :: proc(register_file: ^Register_File, memory: ^Memory_Space, machine_word: u32le, hooks: []Aurum_Hook) -> Exception {
+execute_instruction :: proc(regfile: ^Register_File, memory: ^Memory_Space, machine_word: u32le, hooks: []Aurum_Hook) -> Exception {
     switch machine_word >> 30 {
     case 0b00:
         if machine_word >> 15 & 0b11 == 0b11 {
             if ((machine_word >> 29) & 1) == 0b1 {
                 if machine_word &~ 0x1F02_03FF != 0x2001_8000 { return nil }
-                execute_set_clear_psr_bits(register_file, machine_word)
+                execute_set_clear_psr_bits(regfile, machine_word)
                 return nil
             }
             if machine_word &~ 0x0F02_0000 != 0x0001_8000 { return nil }
-            execute_move_from_psr(register_file, machine_word)
+            execute_move_from_psr(regfile, machine_word)
             return nil
         }
-        return execute_data_transfer(register_file, machine_word)
+        return execute_data_transfer(regfile, memory, machine_word)
     case 0b01:
-        execute_data_processing(register_file, machine_word)
+        execute_data_processing(regfile, machine_word)
         return nil
     case 0b10:
-        execute_branch(register_file, machine_word)
+        execute_branch(regfile, machine_word)
         return nil
     case 0b11:
         if machine_word >> 29 & 0b1 == 0b0 {
-            execute_move_immediate(register_file, machine_word)
+            execute_move_immediate(regfile, machine_word)
             return nil
         }
-        return execute_software_interrupt(register_file, memory, machine_word, hooks)
+        return execute_software_interrupt(regfile, memory, machine_word, hooks)
     }
     panic("unreachable")
 }
 
 @(private = "file")
-execute_data_transfer :: proc(register_file: ^Register_File, memory: ^Memory_Space, machine_word: u32le) -> Exception {
+execute_data_transfer :: proc(regfile: ^Register_File, memory: ^Memory_Space, machine_word: u32le) -> Exception {
     instr := auras.Data_Transfer_Encoding(machine_word)
 
-    base_address := register_read(register_file, instr.rm)
+    base_address := register_read(regfile, instr.rm)
 
     assert(!(instr.b && instr.h))
     width: uint = (instr.b) ? 1 : (instr.h) ? 2 : 4
-    offset := (instr.i) ? u32(instr.offset) : register_read(register_file, instr.offset)
-    shift := instr.shift << 1
+    offset := (instr.i) ? u32(instr.offset) : register_read(regfile, instr.offset)
+    shift := instr.shift * 2
     offset <<= shift
 
     calculated_address := (instr.n) ? base_address - offset : base_address + offset
     effective_address := (instr.p) ? base_address : calculated_address
     writeback_address := (instr.p || instr.w) ? calculated_address : base_address
 
-    register_write(register_file, instr.rm, writeback_address)
+    register_write(regfile, instr.rm, writeback_address)
 
     if instr.s {
-        return memory_write(memory, effective_address, width, register_read(register_file, instr.rd))
+        return memory_write(memory, effective_address, width, register_read(regfile, instr.rd))
     }
 
     value := memory_read(memory, effective_address, width) or_return
-    register_write(register_file, instr.rd, value)
+    if instr.m && value >> ((width * 8) - 1) == 1 { // sign extend
+        value |= 0xFFFF_FFFF << (width * 8)
+    }
+    register_write(regfile, instr.rd, value)
     return nil
 }
 
 @(private = "file")
-execute_move_from_psr :: proc(register_file: ^Register_File, machine_word: u32le) {
+execute_move_from_psr :: proc(regfile: ^Register_File, machine_word: u32le) {
     instr := auras.Move_From_PSR_Encoding(machine_word)
-    register_write(register_file, instr.rd, (^u32)(active_psr_bank(register_file))^)
+    register_write(regfile, instr.rd, (^u32)(active_psr_bank(regfile))^)
 }
 
 @(private = "file")
-execute_set_clear_psr_bits :: proc(register_file: ^Register_File, machine_word: u32le) {
+execute_set_clear_psr_bits :: proc(regfile: ^Register_File, machine_word: u32le) {
     instr := auras.Set_Clear_PSR_Bits_Encoding(machine_word)
-    bank := uint(register_file.psr[0].s)
+    bank := uint(regfile.psr[0].s)
 
-    mask := (instr.i) ? u32(instr.operand) : u32(register_read(register_file, instr.operand))
+    mask := (instr.i) ? u32(instr.operand) : u32(register_read(regfile, instr.operand))
 
     // User mode
-    if !register_file.psr[bank].p {
-        assert(!register_file.psr[bank].s)
-        (^u32)(&register_file.psr[bank])^ |= (mask & 0x0F)
+    if !regfile.psr[bank].p {
+        assert(!regfile.psr[bank].s)
+        (^u32)(&regfile.psr[bank])^ |= (mask & 0x0F)
     }
 
     // Supervisor/system mode
     if instr.s {
-        (^u32)(&register_file.psr[bank])^ |= (mask & 0xFF)
+        (^u32)(&regfile.psr[bank])^ |= (mask & 0xFF)
     } else {
-        (^u32)(&register_file.psr[bank])^ |= ~(mask & 0xFF)
+        (^u32)(&regfile.psr[bank])^ |= ~(mask & 0xFF)
 
         // Clear S bit if P bit is cleared and reenter user mode
-        if !register_file.psr[bank].p {
-            register_file.psr[bank].s = false
-            register_file.pc = register_file.lr[1]
+        if !regfile.psr[bank].p {
+            regfile.psr[bank].s = false
+            regfile.pc = regfile.lr[1]
         }
     }
 
     // Maintain continuity of P and S bits between banks
-    register_file.psr[~bank].p = register_file.psr[bank].p
-    register_file.psr[~bank].s = register_file.psr[bank].s
+    regfile.psr[~bank].p = regfile.psr[bank].p
+    regfile.psr[~bank].s = regfile.psr[bank].s
 
     // Keep supervisor T bit hardcoded high
-    register_file.psr[1].t = true
+    regfile.psr[1].t = true
 }
 
 @(private = "file")
-execute_data_processing :: proc(register_file: ^Register_File, machine_word: u32le) {
+execute_data_processing :: proc(regfile: ^Register_File, machine_word: u32le) {
     instr := auras.Data_Processing_Encoding(machine_word)
-    psr := active_psr_bank(register_file)
+    psr := active_psr_bank(regfile)
 
-    lhs := u32(register_read(register_file, instr.rm))
-    rhs := (instr.i) ? u32(instr.operand2) : u32(register_read(register_file, instr.operand2))
-    shift := (instr.h) ? uint(instr.shift) : uint(register_read(register_file, instr.shift))
+    lhs := u32(register_read(regfile, instr.rm))
+    rhs := (instr.i) ? u32(instr.operand2) : u32(register_read(regfile, instr.operand2))
+    shift := (instr.h) ? uint(instr.shift) : uint(register_read(regfile, instr.shift))
 
     shift_carry: bool = psr.c
     if instr.d {
@@ -129,7 +133,7 @@ execute_data_processing :: proc(register_file: ^Register_File, machine_word: u32
     case .xor: result = u64(lhs ~ rhs)
     case .btc: result = u64(lhs &~ rhs)
     }
-    register_write(register_file, instr.rd, u32(result))
+    register_write(regfile, instr.rd, u32(result))
 
     // Condition code updates are disabled for left shifts with instr.a set
     if (!instr.d && instr.a) { return }
@@ -147,12 +151,12 @@ execute_data_processing :: proc(register_file: ^Register_File, machine_word: u32
 }
 
 @(private = "file")
-execute_software_interrupt :: proc(register_file: ^Register_File, memory: ^Memory_Space, machine_word: u32le, hooks: []Aurum_Hook) -> Exception {
+execute_software_interrupt :: proc(regfile: ^Register_File, memory: ^Memory_Space, machine_word: u32le, hooks: []Aurum_Hook) -> Exception {
     machine_word := u32(machine_word)
 
     for hook in hooks {
-        if machine_word & hook.mask == hook.pattern {
-            hook.action(register_file, memory)
+        if machine_word &~ hook.mask == hook.pattern {
+            hook.action(regfile, memory)
         }
     }
 
@@ -160,9 +164,9 @@ execute_software_interrupt :: proc(register_file: ^Register_File, memory: ^Memor
 }
 
 @(private = "file")
-execute_branch :: proc(register_file: ^Register_File, machine_word: u32le) {
+execute_branch :: proc(regfile: ^Register_File, machine_word: u32le) {
     instr := auras.Branch_Encoding(machine_word)
-    psr := active_psr_bank(register_file)
+    psr := active_psr_bank(regfile)
 
     follow_branch: bool = ---
     switch instr.condition {
@@ -186,11 +190,11 @@ execute_branch :: proc(register_file: ^Register_File, machine_word: u32le) {
     if !follow_branch { return }
 
     if instr.l { // Move next instruction address to link register
-        active_lr(register_file)^ = register_file.pc + WORD_SIZE
+        active_lr(regfile)^ = regfile.pc + WORD_SIZE
     }
 
     if !instr.i { // Branch to address in register (lowest two bits masked out)
-        register_file.pc = register_read(register_file, instr.offset) &~ 0b11
+        regfile.pc = register_read(regfile, instr.offset) &~ 0b11
         return
     }
     
@@ -199,11 +203,11 @@ execute_branch :: proc(register_file: ^Register_File, machine_word: u32le) {
     if offset >> 25 == 0b1 { // sign extend
         offset |= 0xFC00_0000
     }
-    register_file.pc += offset
+    regfile.pc += offset
 }
 
 @(private = "file")
-execute_move_immediate :: proc(register_file: ^Register_File, machine_word: u32le) {
+execute_move_immediate :: proc(regfile: ^Register_File, machine_word: u32le) {
     instr := auras.Move_Immediate_Encoding(machine_word)
 
     imm: u32 = u32(instr.immediate)
@@ -211,5 +215,5 @@ execute_move_immediate :: proc(register_file: ^Register_File, machine_word: u32l
         imm |= 0xFF00_0000
     }
 
-    register_write(register_file, instr.rd, imm)
+    register_write(regfile, instr.rd, imm)
 }

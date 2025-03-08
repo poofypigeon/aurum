@@ -95,4 +95,3 @@ register_write :: #force_inline proc (register_file: ^Register_File, register: u
     case: panic("trying to write to invalid register")
     }
 }
-

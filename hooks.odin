@@ -20,7 +20,9 @@ aurum_write :: Aurum_Hook{
         fd    := register_file.gpr[0] // r1
         buf   := register_file.gpr[1] // r2
         count := register_file.gpr[2] // r3
-       
+      
+        // TODO deal with fd
+
         if buf > u32(len(memory.raw_bytes)) {
             register_file.gpr[0] = 0
             return
@@ -39,6 +41,8 @@ aurum_read :: Aurum_Hook{
         fd    := register_file.gpr[0] // r1
         buf   := register_file.gpr[1] // r2
         count := register_file.gpr[2] // r3
+
+        // TODO
     }
 }
 
