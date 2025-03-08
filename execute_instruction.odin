@@ -79,14 +79,19 @@ execute_set_clear_psr_bits :: proc(regfile: ^Register_File, machine_word: u32le)
     // User mode
     if !regfile.psr[bank].p {
         assert(!regfile.psr[bank].s)
-        (^u32)(&regfile.psr[bank])^ |= (mask & 0x0F)
+        if instr.s {
+            (^u32)(&regfile.psr[bank])^ |= (mask & 0x0F)
+        } else {
+            (^u32)(&regfile.psr[bank])^ &= ~(mask & 0x0F)
+        }
+        return
     }
 
     // Supervisor/system mode
     if instr.s {
         (^u32)(&regfile.psr[bank])^ |= (mask & 0xFF)
     } else {
-        (^u32)(&regfile.psr[bank])^ |= ~(mask & 0xFF)
+        (^u32)(&regfile.psr[bank])^ &= ~(mask & 0xFF)
 
         // Clear S bit if P bit is cleared and reenter user mode
         if !regfile.psr[bank].p {
@@ -96,8 +101,8 @@ execute_set_clear_psr_bits :: proc(regfile: ^Register_File, machine_word: u32le)
     }
 
     // Maintain continuity of P and S bits between banks
-    regfile.psr[~bank].p = regfile.psr[bank].p
-    regfile.psr[~bank].s = regfile.psr[bank].s
+    regfile.psr[~bank & 1].p = regfile.psr[bank].p
+    regfile.psr[~bank & 1].s = regfile.psr[bank].s
 
     // Keep supervisor T bit hardcoded high
     regfile.psr[1].t = true
@@ -159,6 +164,9 @@ execute_software_interrupt :: proc(regfile: ^Register_File, memory: ^Memory_Spac
             hook.action(regfile, memory)
         }
     }
+
+    (^u32)(&regfile.psr[0])^ |= 0xF0 
+    (^u32)(&regfile.psr[1])^ |= 0xF0 
 
     return .Syscall
 }
