@@ -1,6 +1,7 @@
 package aurum
 
 import "core:fmt"
+import "core:os"
 
 Aurum_Hook :: struct {
     mask: u32,
@@ -34,15 +35,23 @@ aurum_write :: Aurum_Hook{
     }
 }
 
-aurum_read :: Aurum_Hook{
+aurum_halt :: Aurum_Hook{
     mask    = SYSCALL_MASK,
-    pattern = SYSCALL_ID_WRITE,
+    pattern = 1,
     action  = proc(register_file: ^Register_File, memory: ^Memory_Space) {
-        fd    := register_file.gpr[0] // r1
-        buf   := register_file.gpr[1] // r2
-        count := register_file.gpr[2] // r3
-
-        // TODO
+        os.exit(0)
     }
 }
 
+// aurum_read :: Aurum_Hook{
+//     mask    = SYSCALL_MASK,
+//     pattern = SYSCALL_ID_WRITE,
+//     action  = proc(register_file: ^Register_File, memory: ^Memory_Space) {
+//         fd    := register_file.gpr[0] // r1
+//         buf   := register_file.gpr[1] // r2
+//         count := register_file.gpr[2] // r3
+//
+//         // TODO
+//     }
+// }
+//
