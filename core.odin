@@ -92,13 +92,14 @@ Branch_Address :: union {
 
 @(private)
 Exception :: enum {
-    None        =  0,
-    Reset       =  4,
-    Syscall     =  8,
-    Bus_Fault   = 12,
-    Usage_Fault = 16,
-    Instruction = 20,
-    Systick     = 24,
+    None        = -1,
+    Reset       =  0,
+    Syscall     =  4,
+    Bus_Fault   =  8,
+    Usage_Fault = 12,
+    Instruction = 16,
+    Systick     = 20,
+    _           = 24,
     _           = 28,
     _           = 32,
     _           = 36,
@@ -107,22 +108,23 @@ Exception :: enum {
     _           = 48,
     _           = 52,
     _           = 56,
-    _           = 60,
-    IRQ0        = 64,
-    IRQ1        = 68,
-    IRQ2        = 72,
-    IRQ3        = 76,
-    IRQ4        = 80,
-    IRQ5        = 84,
-    IRQ6        = 88,
-    IRQ7        = 92,
+    IRQ0        = 60,
+    IRQ1        = 64,
+    IRQ2        = 68,
+    IRQ3        = 72,
+    IRQ4        = 76,
+    IRQ5        = 80,
+    IRQ6        = 84,
+    IRQ7        = 88,
 }
 
-run :: proc(initial_memory: []u8, hooks: []Aurum_Hook) {
-    memory := Memory_Space{ raw_bytes = initial_memory }
+run :: proc(program: ^auras.Source_File, hooks: []Aurum_Hook) {
+    memory := Memory_Space{ raw_bytes = program.buffer[:] }
     regfile := register_file_init()
 
     for i := 0; i < 50; i += 1 {
+        // handle_debug(program, &regfile, &memory)
+
         machine_word, except := memory_read(&memory, regfile.pc, WORD_SIZE)
         if except != nil { panic("misaligned program counter") }
 

@@ -5,79 +5,59 @@ package aurum
 // TODO test ascii length with newlines/tabs
 
 import "core:fmt"
+import "core:slice"
 import "core:os"
+import "core:time"
+import "core:sys/posix"
 
 import "auras"
-HELLO_WORLD :: `
-_vec_none:
-    mvi sp, 0x3FFF
-_vec_reset:
-    b _handler_reset
-_vec_syscall:
-    b _handler_syscall
-_vec_bus_fault:
-    nop
-_vec_usage_fault:
-    nop
-_vec_instruction:
-    nop
-_vec_systick:
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-_vec_irq0:
-    nop
-_vec_irq1:
-    nop
-_vec_irq2:
-    nop
-_vec_irq3:
-    nop
-_vec_irq4:
-    nop
-_vec_irq5:
-    nop
-_vec_irq6:
-    nop
-_vec_irq7:
-    nop
-
-_handler_reset:
-    m32 lr, hello_world ; set user entry point to hello_world
-    scl 0xC0            ; enter user mode 
-
-_handler_syscall:
-    scl 0xC0            ; reenter user mode
-
-hello_world:
-    mvi r1, 0
-    m32 r2, hello_world_string
-    ld  r3, [r2] + 4
-    swi 0
-    swi 1
-    
-hello_world_string:
-    word * ascii "Hello world!\n"
-
-    align 0x4000
-`
 
 main :: proc() {
-    file := auras.create_source_file()
-    defer auras.cleanup_source_file(&file)
+    term_canon: posix.termios
+    posix.tcgetattr(posix.STDIN_FILENO, &term_canon)
+    defer posix.tcsetattr(posix.STDIN_FILENO, .TCSADRAIN, &term_canon)
 
-    if !auras.process_text(&file, HELLO_WORLD) {
-        fmt.println("goodbye.")
+    term_raw := term_canon
+    term_raw.c_lflag &~= { .ECHO, .ICANON }
+    posix.tcsetattr(posix.STDIN_FILENO, .TCSANOW, &term_raw)
+
+    file, err := os.open("hello_world.s")
+    if err != nil {
+        os.print_error(os.stderr, err, "error")
         os.exit(1)
     }
 
+    data, success := os.read_entire_file_from_handle(file)
+    if !success {
+        fmt.eprintln("oops")
+    }
 
-    run(file.buffer[:], { aurum_write, aurum_halt })
+    source_file := auras.create_source_file()
+    auras.process_text(&source_file, string(data))
+
+    slice.sort_by(source_file.symbol_table[:], cmp)
+
+    regfile := register_file_init()
+
+    for{
+        // clear screen
+        fmt.print("\033[2J")
+        // cursor position
+        fmt.print("\033[1;2H")
+        rf_stream := regfile_stream(regfile)
+        fmt.print(rf_stream)
+        // cursor position
+        fmt.print("\033[1;18H")
+        dis_stream := disassembly_stream(regfile, source_file, 23)
+        fmt.print(dis_stream)
+        delete(dis_stream)
+
+        buf: [1]u8
+        os.read(os.stdin, buf[:])
+        regfile.pc += 4
+    }
+
+    cmp :: proc(i: auras.Symbol_Table_Entry, j: auras.Symbol_Table_Entry) -> bool {
+        return i.offset < j.offset
+    }
 }
