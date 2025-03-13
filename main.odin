@@ -6,78 +6,51 @@ package aurum
 
 import "core:fmt"
 import "core:os"
+import "core:slice"
+import "core:sys/posix"
+import "core:time"
 
 import "auras"
-HELLO_WORLD :: `
-_vec_none:
-    mvi sp, 0x3FFF
-_vec_reset:
-    b _handler_reset
-_vec_syscall:
-    b _handler_syscall
-_vec_bus_fault:
-    nop
-_vec_usage_fault:
-    nop
-_vec_instruction:
-    nop
-_vec_systick:
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-_vec_irq0:
-    nop
-_vec_irq1:
-    nop
-_vec_irq2:
-    nop
-_vec_irq3:
-    nop
-_vec_irq4:
-    nop
-_vec_irq5:
-    nop
-_vec_irq6:
-    nop
-_vec_irq7:
-    nop
 
-_handler_reset:
-    m32 lr, hello_world ; set user entry point to hello_world
-    scl 0xC0            ; enter user mode 
+original_mode: posix.termios
 
-_handler_syscall:
-    scl 0xC0            ; reenter user mode
+enable_raw_mode :: proc() {
+    posix.tcgetattr(posix.STDIN_FILENO, &original_mode)
 
-hello_world:
-    mvi r1, 0
-    m32 r2, hello_world_string
-    ld  r3, [r2] + 4
-    swi 0
-    swi 1
-    
-hello_world_string:
-    word * ascii "Hello world!\n"
+    raw := original_mode
+    raw.c_lflag -= { .ECHO, .ICANON }
+    res := posix.tcsetattr(posix.STDIN_FILENO, .TCSANOW, &raw)
+    assert(res == .OK)
+}
 
-    align 0x4000
-`
+disable_raw_mode :: proc "c" () {
+    posix.tcsetattr(posix.STDIN_FILENO, .TCSANOW, &original_mode)
+}
 
 main :: proc() {
-    file := auras.create_source_file()
-    defer auras.cleanup_source_file(&file)
+    enable_raw_mode()
+    posix.atexit(disable_raw_mode)
 
-    if !auras.process_text(&file, HELLO_WORLD) {
-        fmt.println("goodbye.")
+    file, err := os.open("hello_world.s")
+    if err != nil {
+        os.print_error(os.stderr, err, "error")
         os.exit(1)
     }
 
+    data, success := os.read_entire_file_from_handle(file)
+    if !success {
+        fmt.eprintln("oops")
+        os.exit(1)
+    }
 
-    run(file.buffer[:], { aurum_write, aurum_halt })
+    code, ok := auras.code_from_text(string(data))
+    if !ok { os.exit(1) }
+
+    // rt := runtime_from_code_section(code, 1 << 24)
+    rt := runtime_from_code_section(code, 256)
+    auras.code_section_cleanup(&code)
+
+    rt.step_through = true
+
+    run(&rt, []Aurum_Hook{ aurum_write, aurum_halt })
 }

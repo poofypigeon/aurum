@@ -19,7 +19,7 @@ import "auras"
 
 @(test)
 test_data_transfer_ld_bus_fault :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 2, 4)
 
@@ -31,7 +31,7 @@ test_data_transfer_ld_bus_fault :: proc(t: ^testing.T) {
 
 @(test)
 test_data_transfer_ld_usage_fault :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 2, 2)
 
@@ -44,7 +44,7 @@ test_data_transfer_ld_usage_fault :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ld_base_address :: proc(t: ^testing.T) {
     memory_buffer := []u32{ 0xDEAD_BEEF }
-    memory := Memory_Space{ raw_bytes = slice.to_bytes(memory_buffer) }
+    memory := Memory_Space{ physical = slice.to_bytes(memory_buffer) }
     regfile := Register_File{}
     register_write(&regfile, 2, 0)
 
@@ -59,7 +59,7 @@ test_data_transfer_ld_base_address :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ld_immediate_offset :: proc(t: ^testing.T) {
     memory_buffer := []u32{ 0x0000_0000, 0xDEAD_BEEF }
-    memory := Memory_Space{ raw_bytes = slice.to_bytes(memory_buffer) }
+    memory := Memory_Space{ physical = slice.to_bytes(memory_buffer) }
     regfile := Register_File{}
     register_write(&regfile, 2, 0)
 
@@ -74,7 +74,7 @@ test_data_transfer_ld_immediate_offset :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ld_immediate_offset_with_shift :: proc(t: ^testing.T) {
     memory_buffer := []u32le{ 0x0000_0000, 0xDEAD_BEEF }
-    memory := Memory_Space{ raw_bytes = slice.to_bytes(memory_buffer) }
+    memory := Memory_Space{ physical = slice.to_bytes(memory_buffer) }
     regfile := Register_File{}
     register_write(&regfile, 2, 0)
 
@@ -89,7 +89,7 @@ test_data_transfer_ld_immediate_offset_with_shift :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ld_immediate_negative_offset :: proc(t: ^testing.T) {
     memory_buffer := []u32le{ 0xDEAD_BEEF, 0x0000_0000 }
-    memory := Memory_Space{ raw_bytes = slice.to_bytes(memory_buffer) }
+    memory := Memory_Space{ physical = slice.to_bytes(memory_buffer) }
     regfile := Register_File{}
     register_write(&regfile, 2, 4)
 
@@ -104,7 +104,7 @@ test_data_transfer_ld_immediate_negative_offset :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ld_negative_register_offset_with_shift :: proc(t: ^testing.T) {
     memory_buffer := []u32le{ 0xDEAD_BEEF, 0x0000_0000 }
-    memory := Memory_Space{ raw_bytes = slice.to_bytes(memory_buffer) }
+    memory := Memory_Space{ physical = slice.to_bytes(memory_buffer) }
     regfile := Register_File{}
     register_write(&regfile, 2, 4)
     register_write(&regfile, 3, 1)
@@ -121,7 +121,7 @@ test_data_transfer_ld_negative_register_offset_with_shift :: proc(t: ^testing.T)
 @(test)
 test_data_transfer_ld_pre_increment :: proc(t: ^testing.T) {
     memory_buffer := []u32le{ 0x1111_1111, 0x2222_2222 }
-    memory := Memory_Space{ raw_bytes = slice.to_bytes(memory_buffer) }
+    memory := Memory_Space{ physical = slice.to_bytes(memory_buffer) }
     regfile := Register_File{}
     register_write(&regfile, 2, 0)
 
@@ -136,7 +136,7 @@ test_data_transfer_ld_pre_increment :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ld_post_increment :: proc(t: ^testing.T) {
     memory_buffer := []u32le{ 0x1111_1111, 0x2222_2222 }
-    memory := Memory_Space{ raw_bytes = slice.to_bytes(memory_buffer) }
+    memory := Memory_Space{ physical = slice.to_bytes(memory_buffer) }
     regfile := Register_File{}
     register_write(&regfile, 2, 0)
 
@@ -150,7 +150,7 @@ test_data_transfer_ld_post_increment :: proc(t: ^testing.T) {
 
 @(test)
 test_data_transfer_ldh_usage_fault :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 2, 1)
 
@@ -163,7 +163,7 @@ test_data_transfer_ldh_usage_fault :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ldh :: proc(t: ^testing.T) {
     memory_buffer := []u8{ 0x11, 0x22, 0x33, 0x44 }
-    memory := Memory_Space{ raw_bytes = memory_buffer }
+    memory := Memory_Space{ physical = memory_buffer }
     regfile := Register_File{}
 
     machine_word := auras.encode_machine_word("ldh r1, [r0]")
@@ -176,7 +176,7 @@ test_data_transfer_ldh :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ldh_halfword_aligned :: proc(t: ^testing.T) {
     memory_buffer := []u8{ 0x11, 0x22, 0x33, 0x44 }
-    memory := Memory_Space{ raw_bytes = memory_buffer }
+    memory := Memory_Space{ physical = memory_buffer }
     regfile := Register_File{}
     register_write(&regfile, 2, 2)
 
@@ -190,7 +190,7 @@ test_data_transfer_ldh_halfword_aligned :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ldh_sign_bit :: proc(t: ^testing.T) {
     memory_buffer := []u8{ 0x00, 0x80, 0x33, 0x44 }
-    memory := Memory_Space{ raw_bytes = memory_buffer }
+    memory := Memory_Space{ physical = memory_buffer }
     regfile := Register_File{}
 
     machine_word := auras.encode_machine_word("ldh r1, [r0]")
@@ -203,7 +203,7 @@ test_data_transfer_ldh_sign_bit :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ldsh_sign_bit :: proc(t: ^testing.T) {
     memory_buffer := []u8{ 0x00, 0x80, 0x33, 0x44 }
-    memory := Memory_Space{ raw_bytes = memory_buffer }
+    memory := Memory_Space{ physical = memory_buffer }
     regfile := Register_File{}
 
     machine_word := auras.encode_machine_word("ldsh r1, [r0]")
@@ -216,7 +216,7 @@ test_data_transfer_ldsh_sign_bit :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ldb :: proc(t: ^testing.T) {
     memory_buffer := []u8{ 0x11, 0x22, 0x33, 0x44 }
-    memory := Memory_Space{ raw_bytes = memory_buffer }
+    memory := Memory_Space{ physical = memory_buffer }
     regfile := Register_File{}
 
     machine_word := auras.encode_machine_word("ldb r1, [r0]")
@@ -229,7 +229,7 @@ test_data_transfer_ldb :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ldb_byte_aligned :: proc(t: ^testing.T) {
     memory_buffer := []u8{ 0x11, 0x22, 0x33, 0x44 }
-    memory := Memory_Space{ raw_bytes = memory_buffer }
+    memory := Memory_Space{ physical = memory_buffer }
     regfile := Register_File{}
     register_write(&regfile, 2, 1)
 
@@ -243,7 +243,7 @@ test_data_transfer_ldb_byte_aligned :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ldb_sign_bit :: proc(t: ^testing.T) {
     memory_buffer := []u8{ 0x80, 0x22, 0x33, 0x44 }
-    memory := Memory_Space{ raw_bytes = memory_buffer }
+    memory := Memory_Space{ physical = memory_buffer }
     regfile := Register_File{}
 
     machine_word := auras.encode_machine_word("ldb r1, [r0]")
@@ -256,7 +256,7 @@ test_data_transfer_ldb_sign_bit :: proc(t: ^testing.T) {
 @(test)
 test_data_transfer_ldsb_sign_bit :: proc(t: ^testing.T) {
     memory_buffer := []u8{ 0x80, 0x22, 0x33, 0x44 }
-    memory := Memory_Space{ raw_bytes = memory_buffer }
+    memory := Memory_Space{ physical = memory_buffer }
     regfile := Register_File{}
 
     machine_word := auras.encode_machine_word("ldsb r1, [r0]")
@@ -272,7 +272,7 @@ test_data_transfer_ldsb_sign_bit :: proc(t: ^testing.T) {
 
 @(test)
 test_data_transfer_st_bus_fault :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 1, 4)
 
@@ -284,7 +284,7 @@ test_data_transfer_st_bus_fault :: proc(t: ^testing.T) {
 
 @(test)
 test_data_transfer_st_usage_fault :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 1, 2)
 
@@ -296,7 +296,7 @@ test_data_transfer_st_usage_fault :: proc(t: ^testing.T) {
 
 @(test)
 test_data_transfer_st :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 1, 0xDECAF)
 
@@ -304,12 +304,12 @@ test_data_transfer_st :: proc(t: ^testing.T) {
     branch_address := execute_instruction(&regfile, &memory, machine_word, []Aurum_Hook{})
 
     testing.expect_value(t, branch_address, nil)
-    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.raw_bytes))^, u32le(0xDECAF))
+    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.physical))^, u32le(0xDECAF))
 }
 
 @(test)
 test_data_transfer_sth_usage_fault :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 1, 1)
 
@@ -321,7 +321,7 @@ test_data_transfer_sth_usage_fault :: proc(t: ^testing.T) {
 
 @(test)
 test_data_transfer_sth :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 1, 0xCAFE)
 
@@ -329,12 +329,12 @@ test_data_transfer_sth :: proc(t: ^testing.T) {
     branch_address := execute_instruction(&regfile, &memory, machine_word, []Aurum_Hook{})
 
     testing.expect_value(t, branch_address, nil)
-    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.raw_bytes))^, u32le(0xCAFE))
+    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.physical))^, u32le(0xCAFE))
 }
 
 @(test)
 test_data_transfer_sth_halfword_aligned :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 1, 0xCAFE)
     register_write(&regfile, 2, 2)
@@ -343,12 +343,12 @@ test_data_transfer_sth_halfword_aligned :: proc(t: ^testing.T) {
     branch_address := execute_instruction(&regfile, &memory, machine_word, []Aurum_Hook{})
 
     testing.expect_value(t, branch_address, nil)
-    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.raw_bytes))^, u32le(0xCAFE_0000))
+    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.physical))^, u32le(0xCAFE_0000))
 }
 
 @(test)
 hest_data_transfer_stb :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 1, 0xAF)
 
@@ -356,12 +356,12 @@ hest_data_transfer_stb :: proc(t: ^testing.T) {
     branch_address := execute_instruction(&regfile, &memory, machine_word, []Aurum_Hook{})
 
     testing.expect_value(t, branch_address, nil)
-    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.raw_bytes))^, u32le(0xAF))
+    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.physical))^, u32le(0xAF))
 }
 
 @(test)
 test_data_transfer_stb_halfword_aligned :: proc(t: ^testing.T) {
-    memory := Memory_Space{ raw_bytes = []u8{ 0, 0, 0, 0 } }
+    memory := Memory_Space{ physical = []u8{ 0, 0, 0, 0 } }
     regfile := Register_File{}
     register_write(&regfile, 1, 0xAF)
     register_write(&regfile, 2, 1)
@@ -370,7 +370,7 @@ test_data_transfer_stb_halfword_aligned :: proc(t: ^testing.T) {
     branch_address := execute_instruction(&regfile, &memory, machine_word, []Aurum_Hook{})
 
     testing.expect_value(t, branch_address, nil)
-    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.raw_bytes))^, u32le(0x0000_AF00))
+    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.physical))^, u32le(0x0000_AF00))
 }
 
 

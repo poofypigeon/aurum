@@ -44,36 +44,40 @@ register_file_init :: proc() -> Register_File {
 @(private = "file") ps_mask := u32(Program_Status_Register{ p = true, s = true })
 @(private = "file") s_mask  := u32(Program_Status_Register{ s = true })
 
-active_psr_bank :: #force_inline proc(register_file: ^Register_File) -> ^Program_Status_Register {
-    return &register_file.psr[uint(register_file.psr[0].s)]
+active_psr_bank_index :: #force_inline proc(regfile: ^Register_File) -> uint {
+    return uint(regfile.psr[0].s)
 }
 
-active_sp :: #force_inline proc(register_file: ^Register_File) -> ^u32 {
-    return &register_file.sp[uint(register_file.psr[0].s)]
+active_psr_bank :: #force_inline proc(regfile: ^Register_File) -> ^Program_Status_Register {
+    return &regfile.psr[active_psr_bank_index(regfile)]
 }
 
-active_lr :: #force_inline proc(register_file: ^Register_File) -> ^u32 {
-    return &register_file.lr[uint(register_file.psr[0].s)]
+active_sp :: #force_inline proc(regfile: ^Register_File) -> ^u32 {
+    return &regfile.sp[uint(regfile.psr[0].s)]
 }
 
-register_read :: #force_inline proc (register_file: ^Register_File, register: u32) -> u32 {
-    bank := uint(register_file.psr[0].s)
+active_lr :: #force_inline proc(regfile: ^Register_File) -> ^u32 {
+    return &regfile.lr[uint(regfile.psr[0].s)]
+}
+
+register_read :: #force_inline proc (regfile: ^Register_File, register: u32) -> u32 {
+    bank := uint(regfile.psr[0].s)
     switch register {
     case 0: return 0
-    case 1..=13: return register_file.gpr[register - 1]
-    case 14: return register_file.sp[bank]
-    case 15: return register_file.lr[bank]
+    case 1..=13: return regfile.gpr[register - 1]
+    case 14: return regfile.sp[bank]
+    case 15: return regfile.lr[bank]
     }
     panic("trying to read from invalid register")
 }
 
-register_write :: #force_inline proc (register_file: ^Register_File, register: u32, value: u32) {
-    bank := uint(register_file.psr[0].s)
+register_write :: #force_inline proc (regfile: ^Register_File, register: u32, value: u32) {
+    bank := uint(regfile.psr[0].s)
     switch register {
     case 0: return
-    case 1..=13: register_file.gpr[register - 1] = value
-    case 14: register_file.sp[bank] = value
-    case 15: register_file.lr[bank] = value
+    case 1..=13: regfile.gpr[register - 1] = value
+    case 14: regfile.sp[bank] = value
+    case 15: regfile.lr[bank] = value
     case: panic("trying to write to invalid register")
     }
 }
@@ -92,13 +96,14 @@ Branch_Address :: union {
 
 @(private)
 Exception :: enum {
-    None        =  0,
-    Reset       =  4,
-    Syscall     =  8,
-    Bus_Fault   = 12,
-    Usage_Fault = 16,
-    Instruction = 20,
-    Systick     = 24,
+    None        = -1,
+    Reset       =  0,
+    Syscall     =  4,
+    Bus_Fault   =  8,
+    Usage_Fault = 12,
+    Instruction = 16,
+    Systick     = 20,
+    _           = 24,
     _           = 28,
     _           = 32,
     _           = 36,
@@ -107,38 +112,31 @@ Exception :: enum {
     _           = 48,
     _           = 52,
     _           = 56,
-    _           = 60,
-    IRQ0        = 64,
-    IRQ1        = 68,
-    IRQ2        = 72,
-    IRQ3        = 76,
-    IRQ4        = 80,
-    IRQ5        = 84,
-    IRQ6        = 88,
-    IRQ7        = 92,
+    IRQ0        = 60,
+    IRQ1        = 64,
+    IRQ2        = 68,
+    IRQ3        = 72,
+    IRQ4        = 76,
+    IRQ5        = 80,
+    IRQ6        = 84,
+    IRQ7        = 88,
 }
 
-run :: proc(initial_memory: []u8, hooks: []Aurum_Hook) {
-    memory := Memory_Space{ raw_bytes = initial_memory }
-    regfile := register_file_init()
+@(private)
+execute_clock_cycle :: proc(regfile: ^Register_File, memory: ^Memory_Space, hooks: []Aurum_Hook) {
+    machine_word, except := memory_read(memory, regfile.pc, WORD_SIZE)
+    if except != nil { panic("misaligned program counter") }
 
-    for i := 0; i < 50; i += 1 {
-        machine_word, except := memory_read(&memory, regfile.pc, WORD_SIZE)
-        if except != nil { panic("misaligned program counter") }
-
-        branch_address := execute_instruction(&regfile, &memory, machine_word, hooks)
-        if branch_address == nil {
-            regfile.pc += 4
-            continue
-        }
-
-        switch v in branch_address {
-        case u32:       regfile.pc = v
-        case Exception: regfile.pc = u32(v)
-        }
+    branch_address := execute_instruction(regfile, memory, machine_word, hooks)
+    if branch_address == nil {
+        regfile.pc += 4
+        return
     }
 
-    fmt.println("ran out of cycles")
+    switch v in branch_address {
+    case u32:       regfile.pc = v
+    case Exception: regfile.pc = u32(v)
+    }
 }
 
 @(private)
