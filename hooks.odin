@@ -2,6 +2,7 @@ package aurum
 
 import "core:fmt"
 import "core:os"
+import "core:sys/posix"
 
 Aurum_Hook :: struct {
     mask: u32,
@@ -21,8 +22,8 @@ aurum_write :: Aurum_Hook{
         fd    := register_file.gpr[0] // r1
         buf   := register_file.gpr[1] // r2
         count := register_file.gpr[2] // r3
-      
-        // TODO deal with fd
+
+        if fd > 1 { return }
 
         if buf > u32(len(memory.raw_bytes)) {
             register_file.gpr[0] = 0
@@ -30,7 +31,7 @@ aurum_write :: Aurum_Hook{
         }
 
         written := string(memory.raw_bytes[buf:min(buf + count, u32(len(memory.raw_bytes)))])
-        fmt.print(written) 
+        posix.write(core_stdout[1], raw_data(written), len(written))
         register_file.gpr[0] = u32(len(written))
     }
 }

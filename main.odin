@@ -5,12 +5,16 @@ package aurum
 // TODO test ascii length with newlines/tabs
 
 import "core:fmt"
-import "core:slice"
 import "core:os"
-import "core:time"
+import "core:slice"
 import "core:sys/posix"
+import "core:time"
 
 import "auras"
+
+core_stdout: [2]posix.FD
+
+run_with_debugger := true
 
 main :: proc() {
     term_canon: posix.termios
@@ -21,6 +25,11 @@ main :: proc() {
     term_raw.c_lflag &~= { .ECHO, .ICANON }
     posix.tcsetattr(posix.STDIN_FILENO, .TCSANOW, &term_raw)
 
+    posix.pipe(&core_stdout)
+    res := posix.fcntl(core_stdout[0], .SETFL, posix.O_Flags{ posix.O_Flag_Bits.NONBLOCK })
+    defer posix.close(core_stdout[0])
+    defer posix.close(core_stdout[1])
+
     file, err := os.open("hello_world.s")
     if err != nil {
         os.print_error(os.stderr, err, "error")
@@ -30,34 +39,12 @@ main :: proc() {
     data, success := os.read_entire_file_from_handle(file)
     if !success {
         fmt.eprintln("oops")
+        os.exit(1)
     }
 
-    source_file := auras.create_source_file()
-    auras.process_text(&source_file, string(data))
+    program := auras.create_code_section()
+    auras.process_text(&program, string(data))
 
-    slice.sort_by(source_file.symbol_table[:], cmp)
-
-    regfile := register_file_init()
-
-    for{
-        // clear screen
-        fmt.print("\033[2J")
-        // cursor position
-        fmt.print("\033[1;2H")
-        rf_stream := regfile_stream(regfile)
-        fmt.print(rf_stream)
-        // cursor position
-        fmt.print("\033[1;18H")
-        dis_stream := disassembly_stream(regfile, source_file, 23)
-        fmt.print(dis_stream)
-        delete(dis_stream)
-
-        buf: [1]u8
-        os.read(os.stdin, buf[:])
-        regfile.pc += 4
-    }
-
-    cmp :: proc(i: auras.Symbol_Table_Entry, j: auras.Symbol_Table_Entry) -> bool {
-        return i.offset < j.offset
-    }
+    // TODO run core in seperate thread to prevent jams
+    aurum_run(&program, []Aurum_Hook{ aurum_write, aurum_halt })
 }

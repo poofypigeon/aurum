@@ -118,12 +118,12 @@ Exception :: enum {
     IRQ7        = 88,
 }
 
-run :: proc(program: ^auras.Source_File, hooks: []Aurum_Hook) {
+aurum_run :: proc(program: ^auras.Code_Section, hooks: []Aurum_Hook) {
     memory := Memory_Space{ raw_bytes = program.buffer[:] }
     regfile := register_file_init()
 
-    for i := 0; i < 50; i += 1 {
-        // handle_debug(program, &regfile, &memory)
+    for {
+        handle_io(program, &regfile, &memory)
 
         machine_word, except := memory_read(&memory, regfile.pc, WORD_SIZE)
         if except != nil { panic("misaligned program counter") }

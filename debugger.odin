@@ -2,13 +2,61 @@ package aurum
 
 import "auras"
 
-import "core:strings"
-import "core:slice"
-import "core:fmt"
 import "base:runtime"
+import "core:fmt"
+import "core:os"
+import "core:slice"
+import "core:strings"
+import "core:sys/posix"
 
-Debugger_State :: struct{
+handle_io :: proc(code: ^auras.Code_Section, regfile: ^Register_File, memory: ^Memory_Space) {
+    using posix
 
+    if run_with_debugger {
+        // clear screen
+        os.write_string(os.stdout, "\033[2J")
+        // regfile
+        os.write_string(os.stdout, "\033[1;2H")
+        os.write_string(os.stdout, regfile_stream(regfile))
+        // disassembly
+        os.write_string(os.stdout, "\033[1;18H")
+        disassembly := disassembly_stream(code, regfile, 20)
+        os.write_string(os.stdout, disassembly)
+        delete(disassembly)
+        // aura core cursor
+        os.write_string(os.stdout, "\033[25;2H")
+    }
+
+    core_stdout_pollfd := pollfd{ fd = core_stdout[0], events = Poll_Event{ .IN } }
+    stdin_pollfd := pollfd{ fd = STDIN_FILENO, events = Poll_Event{ .IN } }
+    pollfds := []pollfd{ core_stdout_pollfd, stdin_pollfd }
+
+    read_buf: [128]u8 = ---
+    
+    for {
+        poll(raw_data(pollfds), 2, -1)
+        if .IN in pollfds[0].revents {
+            pollfds[0].revents = nil
+            errno(Errno.NONE)
+            for {
+                bytes_read := read(core_stdout[0], raw_data(read_buf[:]), len(read_buf))
+                if bytes_read == -1 {
+                    assert(errno() == Errno.EAGAIN || errno() == Errno.EWOULDBLOCK)
+                    break
+                }
+
+                os.write(os.stdout, read_buf[:bytes_read])
+            }
+        }
+        if .IN in pollfds[1].revents {
+            pollfds[1].revents = nil
+            bytes_read := read(STDIN_FILENO, raw_data(read_buf[:]), 1)
+            switch read_buf[0] {
+            case 'n': return
+            case: os.write_byte(os.stdout, read_buf[0])
+            }
+        }
+    }
 }
 
 write_hex_word :: proc(b: ^strings.Builder, i: u32) {
@@ -43,7 +91,7 @@ write_hex_byte :: proc(b: ^strings.Builder, i: u8) {
 
 write_hex :: proc{ write_hex_byte, write_hex_word }
 
-regfile_stream :: proc(regfile: Register_File) -> string {
+regfile_stream :: proc(regfile: ^Register_File) -> string {
     @static buf: [512]u8
     sb := strings.builder_from_slice(buf[:])
   
@@ -98,7 +146,7 @@ regfile_stream :: proc(regfile: Register_File) -> string {
     }
 }
 
-disassembly_stream :: proc(regfile: Register_File, code: auras.Source_File, lines: int) -> string {
+disassembly_stream :: proc(code: ^auras.Code_Section, regfile: ^Register_File, lines: int) -> string {
     sb: strings.Builder
     strings.builder_init(&sb, 0, 256)
 
@@ -107,7 +155,8 @@ disassembly_stream :: proc(regfile: Register_File, code: auras.Source_File, line
         // save cursor pos
         strings.write_string(&sb, "\0337")
         // label
-        if index, ok := slice.binary_search_by(code.symbol_table[:], address, by); ok {
+        // TODO if index, ok := slice.binary_search_by(code.symbol_table[:], address, by); ok {
+        if index, ok := offset_is_label(code.symbol_table[:], address); ok {
             symbol := runtime.cstring_to_string(cstring(&code.string_table[code.symbol_table[index].name]))
             write_hex(&sb, address)
             strings.write_string(&sb, " <")
@@ -147,12 +196,21 @@ disassembly_stream :: proc(regfile: Register_File, code: auras.Source_File, line
         address += 4
     }
 
-    by :: proc(symbol: auras.Symbol_Table_Entry, offset: u32) -> slice.Ordering {
-        if symbol.offset == offset { return .Equal }
-        return (symbol.offset > offset) ? .Greater : .Less
-    }
-
     return strings.to_string(sb)
+
+    // by :: proc(symbol: auras.Symbol_Table_Entry, offset: u32) -> slice.Ordering {
+    //     if symbol.offset == offset { return .Equal }
+    //     return (symbol.offset > offset) ? .Greater : .Less
+    // }
+
+    offset_is_label :: proc(symbol_table: []auras.Symbol_Table_Entry, offset: u32) -> (int, bool) {
+        for symbol, i in symbol_table {
+            if symbol.offset == offset {
+                return i, true
+            }
+        }
+        return 0, false
+    }
 
 }
 
