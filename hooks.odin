@@ -40,7 +40,7 @@ aurum_halt :: Aurum_Hook{
     mask    = SYSCALL_MASK,
     pattern = 1,
     action  = proc(register_file: ^Register_File, memory: ^Memory_Space) {
-        os.exit(0)
+        halt = true
     }
 }
 

@@ -1078,6 +1078,22 @@ test_data_processing_add_shift :: proc(t: ^testing.T) {
     testing.expect_value(t, active_psr_bank(&regfile).z, false)
 }
 
+@(test)
+test_data_processing_add_negative_immediate :: proc(t: ^testing.T) {
+    regfile := Register_File{}
+    register_write(&regfile, 2, 0x1)
+
+    machine_word := auras.encode_machine_word("add r1, r2, -5")
+    branch_address := execute_instruction(&regfile, &Memory_Space{}, machine_word, []Aurum_Hook{})
+
+    testing.expect_value(t, branch_address, nil)
+    testing.expect_value(t, register_read(&regfile, 1), ~u32(4) + 1) // -5
+    testing.expect_value(t, active_psr_bank(&regfile).c, false)
+    testing.expect_value(t, active_psr_bank(&regfile).v, false)
+    testing.expect_value(t, active_psr_bank(&regfile).n, true)
+    testing.expect_value(t, active_psr_bank(&regfile).z, false)
+}
+
 
 // adc 
 
