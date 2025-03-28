@@ -14,23 +14,26 @@ import "auras"
 WORD_SIZE :: size_of(u32)
 
 Program_Status_Register :: bit_field u32 {
-    z: bool | 1,
-    n: bool | 1,
-    v: bool | 1,
-    c: bool | 1,
-    i: bool | 1,
-    t: bool | 1,
-    s: bool | 1,
-    p: bool | 1,
+    z: bool | 1, // zero
+    n: bool | 1, // negative
+    v: bool | 1, // overflow
+    c: bool | 1, // carry
+    i: bool | 1, // interrupt mask
+    t: bool | 1, // trap mask
+    s: bool | 1, // system mode
+    p: bool | 1, // privileged mode
     _: uint | 24,
 }
 
+@(private = "file") ps_mask := u32(Program_Status_Register{ p = true, s = true })
+@(private = "file") s_mask  := u32(Program_Status_Register{ s = true })
+
 Register_File :: struct {
-    psr: [2]Program_Status_Register,
+    pc: u32,      // program counter
     gpr: [13]u32, // general purpose registers
     sp: [2]u32,   // stack pointer banks
     lr: [2]u32,   // link register banks
-    pc: u32,      // program counter
+    psr: [2]Program_Status_Register,
 }
 
 register_file_init :: proc() -> Register_File {
@@ -40,9 +43,6 @@ register_file_init :: proc() -> Register_File {
         }
     }
 }
-
-@(private = "file") ps_mask := u32(Program_Status_Register{ p = true, s = true })
-@(private = "file") s_mask  := u32(Program_Status_Register{ s = true })
 
 active_psr_bank_index :: #force_inline proc(regfile: ^Register_File) -> uint {
     return uint(regfile.psr[0].s)
@@ -156,11 +156,11 @@ execute_instruction :: proc(regfile: ^Register_File, memory: ^Memory_Space, mach
     case 0b10:
         return execute_branch(regfile, machine_word)
     case 0b11:
-        if machine_word >> 29 & 0b1 == 0b0 {
-            execute_move_immediate(regfile, machine_word)
-            return nil
+        if machine_word >> 29 & 0b1 == 0b1 {
+            return execute_software_interrupt(regfile, memory, machine_word, hooks)
         }
-        return execute_software_interrupt(regfile, memory, machine_word, hooks)
+        execute_move_immediate(regfile, machine_word)
+        return nil
     }
     panic("unreachable")
 }
@@ -171,7 +171,9 @@ execute_data_transfer :: proc(regfile: ^Register_File, memory: ^Memory_Space, ma
 
     base_address := register_read(regfile, instr.rm)
 
-    assert(!(instr.b && instr.h))
+    if instr.b && instr.h { // Malformed
+        return Exception.Instruction
+    }
     width: uint = (instr.b) ? 1 : (instr.h) ? 2 : 4
     offset := (instr.i) ? u32(instr.offset) : register_read(regfile, instr.offset)
     shift := instr.shift * 2
@@ -200,7 +202,9 @@ execute_data_transfer :: proc(regfile: ^Register_File, memory: ^Memory_Space, ma
 @(private = "file")
 execute_move_from_psr :: proc(regfile: ^Register_File, machine_word: u32) -> Branch_Address {
     MOVE_FROM_PSR_ENCODING_MASK :: 0x0F02_0000
-    if machine_word &~ MOVE_FROM_PSR_ENCODING_MASK != 0x0001_8000 { return .Instruction } // Malformed
+    if machine_word &~ MOVE_FROM_PSR_ENCODING_MASK != 0x0001_8000 { // Malformed
+        return Exception.Instruction
+    }
 
     instr := auras.Move_From_PSR_Encoding(machine_word)
     register_write(regfile, instr.rd, (^u32)(active_psr_bank(regfile))^)
@@ -211,9 +215,8 @@ execute_move_from_psr :: proc(regfile: ^Register_File, machine_word: u32) -> Bra
 @(private = "file")
 execute_set_clear_psr_bits :: proc(regfile: ^Register_File, machine_word: u32) -> Branch_Address {
     SET_CLEAR_PSR_BITS_ENCODING_MASK :: 0x1F02_03FF
-
     if machine_word &~ SET_CLEAR_PSR_BITS_ENCODING_MASK != 0x2001_8000 { // Malformed
-        return .Instruction
+        return Exception.Instruction
     }
 
     instr := auras.Set_Clear_PSR_Bits_Encoding(machine_word)
@@ -263,12 +266,21 @@ execute_data_processing :: proc(regfile: ^Register_File, machine_word: u32) {
     psr := active_psr_bank(regfile)
 
     lhs := u32(register_read(regfile, instr.rm))
-    rhs := (instr.i) ? u32(instr.operand2) : u32(register_read(regfile, instr.operand2))
+    rhs: u32 = ---
+    if instr.i {
+        rhs = u32(instr.operand2)
+        if rhs >> 9 == 1 {
+            rhs |= 0xFFFF_FC00
+        }
+    } else {
+        rhs = u32(register_read(regfile, instr.operand2))
+    }
+
     shift := (instr.h) ? uint(instr.shift) : uint(register_read(regfile, instr.shift))
 
     shift_carry: bool = psr.c
     if instr.d {
-        shift = (shift == 0) ? 32 : shift
+        shift = (instr.i && shift == 0) ? 32 : shift
         shift_carry = ((1 << (shift - 1)) & rhs != 0)
         if shift >= 32 {
             sign_bit_set := ((1 << 31) & rhs != 0)

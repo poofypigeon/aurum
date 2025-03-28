@@ -435,7 +435,7 @@ test_set_clear_psr_bits_privileged_system_immediate :: proc(t: ^testing.T) {
     testing.expect_value(t, u32(regfile.psr[1]), 0xB0)
     testing.expect_value(t, u32(regfile.psr[0]), 0xA0)
 
-    // Set I, V, and Z bits in supervisor bank
+    // Set I, V, and Z bits in user/system bank
     machine_word = auras.encode_machine_word("sst 0x15")
     branch_address = execute_instruction(&regfile, &Memory_Space{}, machine_word, []Aurum_Hook{})
 
@@ -466,7 +466,7 @@ test_set_clear_psr_bits_user_immediate :: proc(t: ^testing.T) {
     testing.expect_value(t, u32(regfile.psr[1]), 0x30)
     testing.expect_value(t, u32(regfile.psr[0]), 0x20)
 
-    // Set V and Z bits in user/system bank -- ensure protected bits are not updated
+    // Set V and Z bits in system/user bank -- ensure protected bits are not updated
     machine_word = auras.encode_machine_word("sst 0xE5")
     branch_address = execute_instruction(&regfile, &Memory_Space{}, machine_word, []Aurum_Hook{})
 
@@ -1072,6 +1072,22 @@ test_data_processing_add_shift :: proc(t: ^testing.T) {
 
     testing.expect_value(t, branch_address, nil)
     testing.expect_value(t, register_read(&regfile, 1), 0x8000_0000)
+    testing.expect_value(t, active_psr_bank(&regfile).c, false)
+    testing.expect_value(t, active_psr_bank(&regfile).v, false)
+    testing.expect_value(t, active_psr_bank(&regfile).n, true)
+    testing.expect_value(t, active_psr_bank(&regfile).z, false)
+}
+
+@(test)
+test_data_processing_add_negative_immediate :: proc(t: ^testing.T) {
+    regfile := Register_File{}
+    register_write(&regfile, 2, 0x1)
+
+    machine_word := auras.encode_machine_word("add r1, r2, -5")
+    branch_address := execute_instruction(&regfile, &Memory_Space{}, machine_word, []Aurum_Hook{})
+
+    testing.expect_value(t, branch_address, nil)
+    testing.expect_value(t, register_read(&regfile, 1), ~u32(4) + 1) // -5
     testing.expect_value(t, active_psr_bank(&regfile).c, false)
     testing.expect_value(t, active_psr_bank(&regfile).v, false)
     testing.expect_value(t, active_psr_bank(&regfile).n, true)

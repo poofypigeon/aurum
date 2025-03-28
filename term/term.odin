@@ -1,96 +1,40 @@
 package term
 
-import "core:strings"
+// TODO use "core:encoding/ansi" constants
+
+import "core:encoding/ansi"
 import "core:os"
+import "core:strings"
+import "core:mem"
 
-clear_screen :: #force_inline proc(b: ^strings.Builder) {
-    strings.write_string(b, "\033[2J")
-}
+clear_screen_builder :: #force_inline proc(b: ^strings.Builder) { strings.write_string(b, ansi.CSI + "2" + ansi.ED) }
+clear_screen_stdout  :: #force_inline proc() { os.write_string(os.stdout, ansi.CSI + "2" + ansi.ED) }
+clear_screen :: proc{ clear_screen_builder, clear_screen_stdout }
 
-Clear_In_Line :: enum uint {
-    Cursor_To_End,
-    Start_To_Cursor,
-    Entire_Line,
-}
+clear_cursor_to_line_end_builder :: #force_inline proc(b: ^strings.Builder) { strings.write_string(b, ansi.CSI + "0" + ansi.EL); }
+clear_cursor_to_line_end_stdout  :: #force_inline proc() { os.write_string(os.stdout, ansi.CSI + "0" + ansi.EL); }
+clear_cursor_to_line_end :: proc{ clear_cursor_to_line_end_builder, clear_cursor_to_line_end_stdout }
 
-clear_in_line :: #force_inline proc(b: ^strings.Builder, how: Clear_In_Line) {
-    strings.write_string(b, "\033[")
-    strings.write_uint(b, uint(how))
-    strings.write_byte(b, 'K')
-}
+clear_line_start_to_cursor_builder :: #force_inline proc(b: ^strings.Builder) { strings.write_string(b, ansi.CSI + "1" + ansi.EL); }
+clear_line_start_to_cursor_stdout  :: #force_inline proc() { os.write_string(os.stdout, ansi.CSI + "1" + ansi.EL); }
+clear_line_start_to_cursor :: proc{ clear_line_start_to_cursor_builder, clear_line_start_to_cursor_stdout }
 
-save_cursor_pos :: #force_inline proc(b: ^strings.Builder) {
-    strings.write_string(b, "\0337")
-}
+clear_line_builder :: #force_inline proc(b: ^strings.Builder) { strings.write_string(b, ansi.CSI + "2" + ansi.EL); }
+clear_line_stdout  :: #force_inline proc() { os.write_string(os.stdout, ansi.CSI + "2" + ansi.EL) }
+clear_line :: proc{ clear_line_builder, clear_line_stdout }
 
-restore_cursor_pos :: #force_inline proc(b: ^strings.Builder) {
-    strings.write_string(b, "\0338")
-}
+save_cursor_pos_builder :: #force_inline proc(b: ^strings.Builder) { strings.write_string(b, ansi.DECSC) }
+save_cursor_pos_stdout  :: #force_inline proc() { os.write_string(os.stdout, ansi.DECSC) }
+save_cursor_pos :: proc{ save_cursor_pos_builder, save_cursor_pos_stdout }
 
-Text_Style :: enum uint {
-    Reset              = 0,
-    Bold               = 1,
-    Dim                = 2,
-    Italic             = 3,
-    Underline          = 4,
-    Blinking           = 5,
-    Unknown            = 6, // Anything?
-    Inverted           = 7,
-    Hidden             = 8,
-    Strike_Through     = 9,
+restore_cursor_pos_builder :: #force_inline proc(b: ^strings.Builder) { strings.write_string(b, ansi.DECRC) }
+restore_cursor_pos_stdout  :: #force_inline proc() { os.write_string(os.stdout, ansi.DECRC) }
+restore_cursor_pos :: proc{ restore_cursor_pos_builder, restore_cursor_pos_stdout }
 
-    Not_Bold           = 22,
-    Not_Dim            = 22, 
-    Not_Italic         = 23,
-    Not_Underline      = 24,
-    Not_Blinking       = 25,
-    Not_Inverted       = 27,
-    Not_Hidden         = 28,
-    Not_Strike_Through = 29,
-
-    Black_FG   = 30,
-    Red_FG     = 31,
-    Green_FG   = 32,
-    Yellow_FG  = 33,
-    Blue_FG    = 34,
-    Magenta_FG = 35,
-    Cyan_FG    = 36,
-    White_FG   = 37,
-    Default_FG = 39,
-
-    Black_BG   = 40,
-    Red_BG     = 41,
-    Green_BG   = 42,
-    Yellow_BG  = 43,
-    Blue_BG    = 44,
-    Magenta_BG = 45,
-    Cyan_BG    = 46,
-    White_BG   = 47,
-    Default_BG = 49,
-
-    Bright_Black_FG   = 90,
-    Bright_Red_FG     = 91,
-    Bright_Green_FG   = 92,
-    Bright_Yellow_FG  = 93,
-    Bright_Blue_FG    = 94,
-    Bright_Magenta_FG = 95,
-    Bright_Cyan_FG    = 96,
-    Bright_White_FG   = 97,
-
-    Bright_Black_BG   = 100,
-    Bright_Red_BG     = 101,
-    Bright_Green_BG   = 102,
-    Bright_Yellow_BG  = 103,
-    Bright_Blue_BG    = 104,
-    Bright_Magenta_BG = 105,
-    Bright_Cyan_BG    = 106,
-    Bright_White_BG   = 107,
-}
-
-set_text_style :: proc(b: ^strings.Builder, styles: ..Text_Style) {
-    strings.write_string(b, "\033[")
+set_text_style_builder :: proc(b: ^strings.Builder, styles: ..string) {
+    strings.write_string(b, ansi.CSI)
     for style, i in styles {
-        strings.write_uint(b, uint(style))
+        strings.write_string(b, style)
         if i < len(styles) - 1 {
             strings.write_byte(b, ';')
         }
@@ -98,32 +42,76 @@ set_text_style :: proc(b: ^strings.Builder, styles: ..Text_Style) {
     strings.write_byte(b, 'm')
 }
 
-set_cursor_pos :: proc(b: ^strings.Builder, x, y: uint) {
-    strings.write_string(b, "\033[")
+set_text_style_stdout :: proc(styles: ..string) {
+    os.write_string(os.stdout, ansi.CSI)
+    for style, i in styles {
+        os.write_string(os.stdout, style)
+        if i < len(styles) - 1 {
+            os.write_byte(os.stdout, ';')
+        }
+    }
+    os.write_string(os.stdout, ansi.SGR)
+}
+
+set_text_style :: proc{ set_text_style_builder, set_text_style_stdout }
+
+set_cursor_pos_builder :: proc(b: ^strings.Builder, x, y: uint) {
+    strings.write_string(b, ansi.CSI)
     strings.write_uint(b, y)
     strings.write_byte(b, ';')
     strings.write_uint(b, x)
-    strings.write_byte(b, 'H')
+    strings.write_string(b, ansi.CUP)
 }
 
-set_cursor_col :: proc(b: ^strings.Builder, x: uint) {
-    strings.write_string(b, "\033[")
+set_cursor_pos_stdout :: proc(x, y: uint) {
+    buf: [48]u8
+    sb := strings.builder_from_bytes(buf[:])
+    strings.write_string(&sb, ansi.CSI)
+    strings.write_uint(&sb, y)
+    strings.write_byte(&sb, ';')
+    strings.write_uint(&sb, x)
+    strings.write_string(&sb, ansi.CUP)
+    os.write(os.stdout, sb.buf[:])
+}
+
+set_cursor_pos :: proc{ set_cursor_pos_builder, set_cursor_pos_stdout }
+
+set_cursor_col_builder :: proc(b: ^strings.Builder, x: uint) {
+    strings.write_string(b, ansi.CSI)
     strings.write_uint(b, x)
-    strings.write_byte(b, 'G')
+    strings.write_string(b, ansi.CHA)
 }
 
-Direction :: enum uint {
-    Up    = 'A',
-    Down  = 'B',
-    Right = 'C',
-    Left  = 'D',
+set_cursor_col_stdout :: proc(x: uint) {
+    buf: [24]u8
+    sb := strings.builder_from_bytes(buf[:])
+    strings.write_string(&sb, ansi.CSI)
+    strings.write_uint(&sb, x)
+    strings.write_string(&sb, ansi.CHA)
+    os.write(os.stdout, sb.buf[:])
 }
 
-move_cursor :: proc(b: ^strings.Builder, direction: Direction, n: uint = 1) {
+set_cursor_col :: proc{ set_cursor_col_builder, set_cursor_col_stdout }
+
+move_cursor_builder :: proc(b: ^strings.Builder, direction: string, n: uint = 1) {
     if n == 0 { return }
-    strings.write_string(b, "\033[")
+    strings.write_string(b, ansi.CSI)
     if n > 1 {
         strings.write_uint(b, n)
     }
-    strings.write_byte(b, u8(direction))
+    strings.write_string(b, direction)
 }
+
+move_cursor_stdout :: proc(direction: string, n: uint = 1) {
+    buf: [24]u8
+    sb := strings.builder_from_bytes(buf[:])
+    if n == 0 { return }
+    strings.write_string(&sb, ansi.CSI)
+    if n > 1 {
+        strings.write_uint(&sb, n)
+    }
+    strings.write_string(&sb, direction)
+    os.write(os.stdout, sb.buf[:])
+}
+
+move_cursor :: proc{ move_cursor_builder, move_cursor_stdout }

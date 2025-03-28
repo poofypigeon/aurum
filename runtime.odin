@@ -4,14 +4,15 @@ import "auras"
 import "term"
 
 import "base:runtime"
+import "core:encoding/ansi"
 import "core:fmt"
 import "core:os"
 import "core:slice"
+import "core:strconv"
 import "core:strings"
 import "core:sys/posix"
-import "core:unicode"
-import "core:strconv"
 import "core:time"
+import "core:unicode"
 
 Runtime_State :: struct {
     regfile: Register_File,
@@ -21,12 +22,15 @@ Runtime_State :: struct {
     raw_string_table: []u8,
     string_table: []string,
     breakpoints: [dynamic]u32,
-    window_offset: int,
-    tracking_pc: bool,
-    step_through: bool,
+    window_offset: int, // starting address of view window
+    tracking_pc: bool,  // whether the view window is locked to the PC
+    step_through: bool, // stop after next instruction run
 }
 
+// pseudo stdin that the emulator hooks into
 core_stdin  : [dynamic]u8
+
+// pseudo stdout that the emulator hooks into
 core_stdout : [dynamic]u8
 
 runtime_from_code_section :: proc(code: auras.Code_Section, memory_size: uint) -> Runtime_State {
@@ -65,9 +69,12 @@ runtime_from_code_section :: proc(code: auras.Code_Section, memory_size: uint) -
     }
 }
 
+halt := false
+
 run :: proc(rt: ^Runtime_State, hooks: []Aurum_Hook) {
     for {
         interface(rt)
+        if halt { return }
         execute_clock_cycle(&rt.regfile, &rt.memory, hooks)
     }
 }
@@ -78,7 +85,7 @@ interface :: proc(rt: ^Runtime_State) {
     sb := strings.builder_make(0, 1024)
     defer strings.builder_destroy(&sb)
 
-    if !rt.step_through {
+    if !rt.step_through && !halt {
         for bp in rt.breakpoints {
             if rt.regfile.pc == bp {
                 rt.step_through = true
@@ -88,6 +95,7 @@ interface :: proc(rt: ^Runtime_State) {
         // core stdout
         term.set_cursor_pos(&sb, 91, 1)
         write_core_stdout(&sb)
+        // cursor to command line
         term.set_cursor_pos(&sb, 1, 48)
         os.write_string(os.stdout, strings.to_string(sb))
 
@@ -113,17 +121,15 @@ interface :: proc(rt: ^Runtime_State) {
             // disassembly
             term.set_cursor_pos(&sb, 17, 1)
             write_disassembly(&sb, rt, rt.window_offset, DISASSEMBLY_LINES)
-
-            // verical divider
-            // term.set_cursor_pos(&sb, 84, 1)
-            // draw_vertical_divider(&sb, 46)
-
             // core stdout
             term.set_cursor_pos(&sb, 91, 1)
             write_core_stdout(&sb)
-
+            // cursor to command line
             term.set_cursor_pos(&sb, 1, 48)
             os.write_string(os.stdout, strings.to_string(sb))
+
+            // final print without user input
+            if halt { return }
         }
         os.read(os.stdin, c[:])
         switch c[0] {
@@ -132,13 +138,13 @@ interface :: proc(rt: ^Runtime_State) {
         case 'R':
             rt.step_through = false
             break user_input
-        case 'j': // window down
+        case 'j': // view window down
             rt.tracking_pc = false
             if rt.window_offset < len(rt.memory.physical) - 4 {
                 rt.window_offset += 4
             }
             redraw = true
-        case 'k': // window up
+        case 'k': // view window up
             rt.tracking_pc = false
             if rt.window_offset > 0 {
                 rt.window_offset -= 4
@@ -170,9 +176,12 @@ interface :: proc(rt: ^Runtime_State) {
 }
 
 command :: proc(rt: ^Runtime_State) -> (redraw: bool) {
-    // TODO command history
+    // TODO command history and move cursor left/right
 
-    os.write_string(os.stdout, "\033[2K\033[1G:")
+    term.clear_line()
+    term.set_cursor_col(1)
+    os.write_byte(os.stdout, ':')
+
     sb := strings.builder_make(0, 32)
     defer strings.builder_destroy(&sb)
 
@@ -180,17 +189,17 @@ command :: proc(rt: ^Runtime_State) -> (redraw: bool) {
     user_input: for {
         os.read(os.stdin, c[:])
         switch c {
-        case '\010', '\177': // backspace, delete
+        case '\b', '\177': // backspace, delete
             if strings.builder_len(sb) == 0 { continue }
             resize(&sb.buf, strings.builder_len(sb) - 1)
-            // remove trailing character from display
-            os.write_string(os.stdout, "\033[D\033[0K")
-        case '\033': // escape
-            // clear line and jump to first column
-            os.write_string(os.stdout, "\033[2K\033[1G")
+            // remove trailing character from line
+            term.move_cursor(ansi.CUB)
+            term.clear_cursor_to_line_end()
+        case '\e': // escape
+            term.clear_line()
+            term.set_cursor_col(1)
             return
         case '\n':
-            // clear line and jump to first column
             break user_input
         case:
             strings.write_byte(&sb, c[0])
@@ -204,7 +213,7 @@ command :: proc(rt: ^Runtime_State) -> (redraw: bool) {
 
     switch token {
     case "b":
-        return parse_breakpoint(rt, &command)
+        return breakpoint_command(rt, &command)
     case: 
         bad_value("Not a runtime command", token)
     }
@@ -213,7 +222,7 @@ command :: proc(rt: ^Runtime_State) -> (redraw: bool) {
     return
 }
 
-parse_breakpoint :: proc(rt: ^Runtime_State, command: ^auras.Tokenizer) -> (redraw: bool) {
+breakpoint_command :: proc(rt: ^Runtime_State, command: ^auras.Tokenizer) -> (redraw: bool) {
     token, ok := auras.tokenizer_next(command)
     if !ok { return }
 
@@ -256,7 +265,8 @@ parse_breakpoint :: proc(rt: ^Runtime_State, command: ^auras.Tokenizer) -> (redr
         return
     }
 
-    os.write_string(os.stdout, "\033[2K\033[1G")
+    term.clear_line()
+    term.set_cursor_col(1)
 
     backing: [10]u8 = ---
     address_string := strings.builder_from_slice(backing[:])
@@ -299,13 +309,13 @@ parse_breakpoint :: proc(rt: ^Runtime_State, command: ^auras.Tokenizer) -> (redr
 }
 
 bad_value :: proc(message, value: string) {
-    // clear line, jump to first column, and set style
-    os.write_string(os.stdout, "\033[2K\033[1G\033[1;3;91m")
+    term.clear_line()
+    term.set_cursor_col(1)
+    term.set_text_style(ansi.BOLD, ansi.ITALIC, ansi.FG_BRIGHT_RED)
     os.write_string(os.stdout, message)
     os.write_string(os.stdout, ": ")
     os.write_string(os.stdout, value)
-    // clear style
-    os.write_string(os.stdout, "\033[0m")
+    term.set_text_style(ansi.RESET)
 }
 
 write_regfile :: proc(b: ^strings.Builder, regfile: ^Register_File) {
@@ -315,79 +325,76 @@ write_regfile :: proc(b: ^strings.Builder, regfile: ^Register_File) {
         term.save_cursor_pos(b)
 
         // register name
-        term.set_text_style(b, .Dim)
+        term.set_text_style(b, ansi.FAINT)
         strings.write_byte(b, 'r')
         strings.write_uint(b, uint(i) + 1)
         strings.write_byte(b, ' ')
         if i + 1 <= 9 { strings.write_byte(b, ' ') }
-        term.set_text_style(b, .Not_Dim)
+        term.set_text_style(b, ansi.NO_BOLD_FAINT)
 
         // register data
         if reg != prev_regfile.gpr[i] {
             // invert colours on value change
-            term.set_text_style(b, .Inverted, .Yellow_FG)
+            term.set_text_style(b, ansi.INVERT, ansi.FG_YELLOW)
         }
         write_hex_word(b, reg)
 
         term.restore_cursor_pos(b)
-        term.move_cursor(b, .Down)
+        term.move_cursor(b, ansi.CUD)
     }
 
     for i in 0..=1 {
-        term.move_cursor(b, .Down)
+        term.move_cursor(b, ansi.CUD)
         term.save_cursor_pos(b)
 
         // bank header
-        term.set_text_style(b, .Yellow_FG)
+        term.set_text_style(b, ansi.FG_YELLOW)
         strings.write_string(b, "<bank ")
         strings.write_byte(b,  '0' + u8(i))
         strings.write_byte(b, '>')
         if i == int(active_psr_bank_index(regfile)) {
-            term.set_text_style(b, .Bold, .Red_FG)
+            term.set_text_style(b, ansi.BOLD, ansi.FG_RED)
             strings.write_string(b, " *")
         }
-        term.set_text_style(b, .Default_FG)
+        term.set_text_style(b, ansi.FG_DEFAULT)
 
         term.restore_cursor_pos(b)
-        term.move_cursor(b, .Down)
+        term.move_cursor(b, ansi.CUD)
         term.save_cursor_pos(b)
 
         // stack pointer
-        term.set_text_style(b, .Dim)
+        term.set_text_style(b, ansi.FAINT)
         strings.write_string(b, "sp  ")
-        term.set_text_style(b, .Not_Dim)
+        term.set_text_style(b, ansi.NO_BOLD_FAINT)
         if regfile.sp[i] != prev_regfile.sp[i] {
             // invert colours on value change
-            term.set_text_style(b, .Inverted, .Yellow_FG)
+            term.set_text_style(b, ansi.INVERT, ansi.FG_YELLOW)
         }
         write_hex_word(b, regfile.sp[i])
 
         term.restore_cursor_pos(b)
-        term.move_cursor(b, .Down)
+        term.move_cursor(b, ansi.CUD)
         term.save_cursor_pos(b)
 
         // link register
-        term.set_text_style(b, .Dim)
+        term.set_text_style(b, ansi.FAINT)
         strings.write_string(b, "lr  ")
-        term.set_text_style(b, .Not_Dim)
+        term.set_text_style(b, ansi.NO_BOLD_FAINT)
         if regfile.lr[i] != prev_regfile.lr[i] {
             // invert colours on value change
-            term.set_text_style(b, .Inverted, .Yellow_FG)
+            term.set_text_style(b, ansi.INVERT, ansi.FG_YELLOW)
         }
         write_hex_word(b, regfile.lr[i])
 
         term.restore_cursor_pos(b)
-        term.move_cursor(b, .Down)
+        term.move_cursor(b, ansi.CUD)
         term.save_cursor_pos(b)
 
         // program status register
-        term.set_text_style(b, .Dim)
-        strings.write_string(b, "psr ")
-        term.set_text_style(b, .Not_Dim)
         write_psr(b, regfile.psr[i])
 
         term.restore_cursor_pos(b)
-        term.move_cursor(b, .Down)
+        term.move_cursor(b, ansi.CUD)
     }
 
     prev_regfile = regfile^
@@ -396,9 +403,14 @@ write_regfile :: proc(b: ^strings.Builder, regfile: ^Register_File) {
 
     write_psr :: proc(b: ^strings.Builder, r: Program_Status_Register) {
         FLAG_LETTERS :: "PSTICVNZ"
+
+        term.set_text_style(b, ansi.FAINT)
+        strings.write_string(b, "psr ")
+        term.set_text_style(b, ansi.NO_BOLD_FAINT)
+
         for c, i in FLAG_LETTERS {
             flag_set := ((1 << uint(7 - i)) & u32(r) != 0)
-            term.set_text_style(b, .Not_Bold, (flag_set) ? .Bold : .Dim)
+            term.set_text_style(b, ansi.NO_BOLD_FAINT, (flag_set) ? ansi.BOLD : ansi.FAINT)
             strings.write_byte(b, u8(c))
         }
     }
@@ -408,13 +420,13 @@ write_disassembly :: proc(b: ^strings.Builder, rt: ^Runtime_State, window_offset
     address := u32(window_offset)
     for i := 0; i < lines; i += 1 {
         term.save_cursor_pos(b)
-        term.clear_in_line(b, .Cursor_To_End)
+        term.clear_cursor_to_line_end(b)
 
         // end of memory
         if address >= u32(len(rt.memory.physical)) {
             // strings.write_string(b, "    ")
             term.restore_cursor_pos(b)
-            term.move_cursor(b, .Down)
+            term.move_cursor(b, ansi.CUD)
             continue
         }
 
@@ -423,17 +435,17 @@ write_disassembly :: proc(b: ^strings.Builder, rt: ^Runtime_State, window_offset
             strings.write_string(b, "    ")
 
             write_hex_word(b, address)
-            term.set_text_style(b, .Yellow_FG)
+            term.set_text_style(b, ansi.FG_YELLOW)
             strings.write_string(b, " <")
             strings.write_string(b, label)
             strings.write_byte(b, '>')
-            term.set_text_style(b, .Default_FG)
+            term.set_text_style(b, ansi.FG_DEFAULT)
             strings.write_byte(b, ':')
 
             term.restore_cursor_pos(b)
-            term.move_cursor(b, .Down)
+            term.move_cursor(b, ansi.CUD)
             term.save_cursor_pos(b)
-            term.clear_in_line(b, .Cursor_To_End)
+            term.clear_cursor_to_line_end(b)
 
             i += 1
             if i == lines { break }
@@ -451,16 +463,16 @@ write_disassembly :: proc(b: ^strings.Builder, rt: ^Runtime_State, window_offset
 
         // pc and breakpoint lines
         if on_pc_line {
-            term.set_text_style(b, .Inverted, .Bold, .Yellow_FG)
+            term.set_text_style(b, ansi.INVERT, ansi.FG_YELLOW)
             if breakpoint {
-                term.set_text_style(b, .Bright_Red_FG)
+                term.set_text_style(b, ansi.FG_BRIGHT_RED)
             }
             strings.write_string(b, (breakpoint) ? "  * " : "    ")
-            term.set_text_style(b, .Not_Bold)
+            term.set_text_style(b, ansi.NO_BOLD_FAINT)
         } else {
-            term.set_text_style(b, .Bold, .Bright_Red_FG)
+            term.set_text_style(b, ansi.BOLD, ansi.FG_BRIGHT_RED)
             strings.write_string(b, (breakpoint) ? "  * " : "    ")
-            term.set_text_style(b, .Not_Bold, .Default_FG)
+            term.set_text_style(b, ansi.NO_BOLD_FAINT, ansi.FG_DEFAULT)
         }
 
         // address
@@ -469,7 +481,7 @@ write_disassembly :: proc(b: ^strings.Builder, rt: ^Runtime_State, window_offset
 
         // data at address in bytes
         if !on_pc_line {
-            term.set_text_style(b, .Dim)
+            term.set_text_style(b, ansi.FAINT)
         }
         for j in 0..<4 { 
             if address >= u32(len(rt.memory.physical)) {
@@ -479,12 +491,12 @@ write_disassembly :: proc(b: ^strings.Builder, rt: ^Runtime_State, window_offset
             write_hex_byte(b, rt.memory.physical[address + u32(j)])
             strings.write_byte(b, ' ')
         }
-        term.set_text_style(b, .Not_Dim)
+        term.set_text_style(b, ansi.NO_BOLD_FAINT)
         strings.write_string(b, "   ")
 
         eol_padding := 38
 
-        // disassembly
+        // disassembled instruction
         machine_word := u32((^u32le)(&rt.memory.physical[address])^)
         if instr, ok := auras.decode_instruction(machine_word); ok {
             strings.write_string(b, instr)
@@ -495,16 +507,16 @@ write_disassembly :: proc(b: ^strings.Builder, rt: ^Runtime_State, window_offset
         }
 
         // branch destination as comment
-        if machine_word >> 30 == 0b10 { // branch
+        if machine_word >> 30 == 0b10 && ((machine_word >> 28) & 1) == 1 { // branch
             offset := machine_word & 0x00FF_FFFF
-            offset |= (offset >> 23 != 0) ? 0xFF : 0
+            offset |= (offset >> 23 != 0) ? 0xFF00_0000 : 0
             offset <<= 2
             destination := address + offset
             if label := get_label_at_address(rt, destination); label != "" {
-                term.set_text_style(b, .Italic)
+                term.set_text_style(b, ansi.ITALIC)
                 if address != rt.regfile.pc {
                     // dim comment unless line is already inverted (bad contrast)
-                    term.set_text_style(b, .Cyan_FG)
+                    term.set_text_style(b, ansi.FG_CYAN)
                 }
                 strings.write_string(b, " ; <")
                 strings.write_string(b, label)
@@ -521,7 +533,7 @@ write_disassembly :: proc(b: ^strings.Builder, rt: ^Runtime_State, window_offset
         }
 
         term.restore_cursor_pos(b)
-        term.move_cursor(b, .Down)
+        term.move_cursor(b, ansi.CUD)
 
         address += 4
     }
@@ -547,7 +559,8 @@ write_core_stdout :: proc(b: ^strings.Builder) {
     for c in core_stdout {
         if c == '\n' {
             term.restore_cursor_pos(b)
-            term.move_cursor(b, .Down)
+            term.move_cursor(b, ansi.CUD)
+            term.save_cursor_pos(b)
             strings.write_string(b, "> ")
             continue
         }

@@ -31,7 +31,13 @@ main :: proc() {
     enable_raw_mode()
     posix.atexit(disable_raw_mode)
 
-    file, err := os.open("hello_world.s")
+    if len(os.args) < 2 {
+        fmt.eprintln("missing file")
+        os.exit(0)
+    }
+
+    file_path := os.args[1]
+    file, err := os.open(file_path)
     if err != nil {
         os.print_error(os.stderr, err, "error")
         os.exit(1)
@@ -39,7 +45,7 @@ main :: proc() {
 
     data, success := os.read_entire_file_from_handle(file)
     if !success {
-        fmt.eprintln("oops")
+        fmt.eprintln("failed to read file")
         os.exit(1)
     }
 
@@ -47,7 +53,7 @@ main :: proc() {
     if !ok { os.exit(1) }
 
     // rt := runtime_from_code_section(code, 1 << 24)
-    rt := runtime_from_code_section(code, 256)
+    rt := runtime_from_code_section(code, 4096)
     auras.code_section_cleanup(&code)
 
     rt.step_through = true
