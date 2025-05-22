@@ -141,7 +141,8 @@ base10_digits:
 ; arg r2 is value
 ; ret r1 is length
 sword_to_dec_str:
-    st r1, [sp - 4]!        ; push original destination pointer
+    push lr                 ; push link address
+    push r1                 ; push original destination pointer
     tst r2, -1              ; test if negative
     bpl sword_to_dec_str_pos; value is positive
     mvi r13, 45             ; ascii '-'
@@ -149,10 +150,9 @@ sword_to_dec_str:
     not r2, r2              ; one's complement
     add r2, r2, 1           ; two's complement
 sword_to_dec_str_pos:
-    st lr, [sp - 4]!        ; push link address
     bl uword_to_dec_str
-    ld lr, [sp] + 4         ; pop link address
-    ld r13, [sp] + 4        ; pop original destination pointer
+    pop r13                 ; pop original destination pointer
+    pop lr                  ; pop link address
     ldb r13, [r13]          ; load first char of string
     cmp r13, 45             ; test if char is ascii '-'
     bne lr
