@@ -266,6 +266,20 @@ test_data_transfer_ldsb_sign_bit :: proc(t: ^testing.T) {
     testing.expect_value(t, register_read(&regfile, 1), 0xFFFF_FF80)
 }
 
+@(test)
+test_data_transfer_pop :: proc(t: ^testing.T) {
+    memory_buffer := []u8{ 0x11, 0x11, 0x11, 0x11, 0x22, 0x22, 0x22, 0x22 }
+    memory := Memory_Space{ physical = memory_buffer }
+    regfile := Register_File{}
+
+    machine_word := auras.encode_machine_word("pop lr")
+    branch_address := execute_instruction(&regfile, &memory, machine_word, []Aurum_Hook{})
+
+    testing.expect_value(t, branch_address, nil)
+    testing.expect_value(t, register_read(&regfile, 14), 0x0000_0004)
+    testing.expect_value(t, register_read(&regfile, 15), 0x1111_1111)
+}
+
 
 // st
 
@@ -371,6 +385,22 @@ test_data_transfer_stb_halfword_aligned :: proc(t: ^testing.T) {
 
     testing.expect_value(t, branch_address, nil)
     testing.expect_value(t, (^u32le)(slice.as_ptr(memory.physical))^, u32le(0x0000_AF00))
+}
+
+@(test)
+test_data_transfer_push :: proc(t: ^testing.T) {
+    memory_buffer := []u8{ 0x11, 0x11, 0x11, 0x11, 0x22, 0x22, 0x22, 0x22 }
+    memory := Memory_Space{ physical = memory_buffer }
+    regfile := Register_File{}
+    register_write(&regfile, 14, 0x0000_0004)
+    register_write(&regfile, 15, 0xAAAA_AAAA)
+
+    machine_word := auras.encode_machine_word("push lr")
+    branch_address := execute_instruction(&regfile, &memory, machine_word, []Aurum_Hook{})
+
+    testing.expect_value(t, branch_address, nil)
+    testing.expect_value(t, register_read(&regfile, 14), 0x0000_0000)
+    testing.expect_value(t, (^u32le)(slice.as_ptr(memory.physical))^, u32le(0xAAAA_AAAA))
 }
 
 
